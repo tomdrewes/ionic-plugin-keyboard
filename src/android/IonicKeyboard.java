@@ -21,6 +21,8 @@ import android.view.Display;
 import android.graphics.Point;
 import android.os.Build;
 
+import java.lang.Thread;
+
 public class IonicKeyboard extends CordovaPlugin {
     private OnGlobalLayoutListener list;
     private View rootView;
@@ -59,20 +61,41 @@ public class IonicKeyboard extends CordovaPlugin {
         if ("init".equals(action)) {
             cordova.getThreadPool().execute(new Runnable() {
                 public void run() {
-                	//calculate density-independent pixels (dp)
+                    //calculate density-independent pixels (dp)
                     //http://developer.android.com/guide/practices/screens_support.html
                     DisplayMetrics dm = new DisplayMetrics();
                     cordova.getActivity().getWindowManager().getDefaultDisplay().getMetrics(dm);
                     final float density = dm.density;
+                    final int retryTimeMs = 50;
 
                     //http://stackoverflow.com/a/4737265/1091751 detect if keyboard is showing
                     rootView = cordova.getActivity().getWindow().getDecorView().findViewById(android.R.id.content).getRootView();
                     list = new OnGlobalLayoutListener() {
                         int previousHeightDiff = 0;
+
                         @Override
                         public void onGlobalLayout() {
+                            measure();
+                            // On some Android platforms, performing the measurements to determine
+                            // keyboard state may not be accurate based on their timing. The following
+                            // performs the measurement again after a short timeout on a threadpool
+                            // thread to try to catch these cases.
+                            final Runnable measurer = new Runnable() {
+                                public void run() {
+                                    try {
+                                        Thread.sleep(retryTimeMs);
+                                    } catch(InterruptedException e) {
+                                        // nothing to do if sleep interrupted
+                                    }
+                                    measure();
+                                }
+                            };
+                            cordova.getThreadPool().execute(measurer);
+                        }
+
+                        private void measure() {
                             Rect r = new Rect();
-                            //r will be populated with the coordinates of your view that area still visible.
+                            //r will be populated with the coordinates of your view that are still visible.
                             rootView.getWindowVisibleDisplayFrame(r);
 
                             PluginResult result;
@@ -84,7 +107,6 @@ public class IonicKeyboard extends CordovaPlugin {
                             // calculate screen height differently for android versions >= 21: Lollipop 5.x, Marshmallow 6.x
                             //http://stackoverflow.com/a/29257533/3642890 beware of nexus 5
                             int screenHeight;
-
                             if (Build.VERSION.SDK_INT >= 21) {
                                 Display display = cordova.getActivity().getWindowManager().getDefaultDisplay();
                                 Point size = new Point();
@@ -95,8 +117,8 @@ public class IonicKeyboard extends CordovaPlugin {
                             }
 
                             int heightDiff = screenHeight - resultBottom;
-
                             int pixelHeightDiff = (int)(heightDiff / density);
+
                             if (pixelHeightDiff > 100 && pixelHeightDiff != previousHeightDiff) { // if more than 100 pixels, its probably a keyboard...
                                 String msg = "S" + Integer.toString(pixelHeightDiff);
                                 result = new PluginResult(PluginResult.Status.OK, msg);
@@ -104,17 +126,16 @@ public class IonicKeyboard extends CordovaPlugin {
                                 callbackContext.sendPluginResult(result);
                             }
                             else if ( pixelHeightDiff != previousHeightDiff && ( previousHeightDiff - pixelHeightDiff ) > 100 ){
-                            	String msg = "H";
+                                String msg = "H";
                                 result = new PluginResult(PluginResult.Status.OK, msg);
                                 result.setKeepCallback(true);
                                 callbackContext.sendPluginResult(result);
                             }
-                            previousHeightDiff = pixelHeightDiff;
-                         }
+                            previousHeightDiff = pixelHeightDiff;                            
+                        }
                     };
 
                     rootView.getViewTreeObserver().addOnGlobalLayoutListener(list);
-
 
                     PluginResult dataResult = new PluginResult(PluginResult.Status.OK);
                     dataResult.setKeepCallback(true);
@@ -129,8 +150,5 @@ public class IonicKeyboard extends CordovaPlugin {
     @Override
     public void onDestroy() {
         rootView.getViewTreeObserver().removeOnGlobalLayoutListener(list);
-    }
-
+    }    
 }
-
-
